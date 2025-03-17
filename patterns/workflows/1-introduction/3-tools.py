@@ -2,10 +2,16 @@ import json
 import os
 
 import requests
-from openai import OpenAI
+from groq import Groq
 from pydantic import BaseModel, Field
+import instructor
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
+
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# Enable instructor patches for Groq client
+client = instructor.from_groq(client)
 
 """
 docs: https://platform.openai.com/docs/guides/function-calling
@@ -24,6 +30,11 @@ def get_weather(latitude, longitude):
     data = response.json()
     return data["current"]
 
+
+# There could be more functions
+available_functions = {
+    "get_weather": get_weather,
+}
 
 # --------------------------------------------------------------
 # Step 1: Call model with get_weather tool defined
@@ -53,13 +64,15 @@ system_prompt = "You are a helpful weather assistant."
 
 messages = [
     {"role": "system", "content": system_prompt},
-    {"role": "user", "content": "What's the weather like in Paris today?"},
+    {"role": "user", "content": "What's the weather like in Riga today?"},
 ]
 
 completion = client.chat.completions.create(
-    model="gpt-4o",
+    model=MODEL,
     messages=messages,
     tools=tools,
+    tool_choice="auto",  # LLM may decide which funcion to use
+    response_model=None,
 )
 
 # --------------------------------------------------------------
@@ -72,18 +85,12 @@ completion.model_dump()
 # Step 3: Execute get_weather function
 # --------------------------------------------------------------
 
-
-def call_function(name, args):
-    if name == "get_weather":
-        return get_weather(**args)
-
-
 for tool_call in completion.choices[0].message.tool_calls:
-    name = tool_call.function.name
+    function_name = tool_call.function.name
+    function_to_call = available_functions[function_name]
     args = json.loads(tool_call.function.arguments)
-    messages.append(completion.choices[0].message)
 
-    result = call_function(name, args)
+    result = function_to_call(**args)
     messages.append(
         {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result)}
     )
@@ -102,17 +109,17 @@ class WeatherResponse(BaseModel):
     )
 
 
-completion_2 = client.beta.chat.completions.parse(
-    model="gpt-4o",
+completion_2 = client.chat.completions.create(
+    model=MODEL,
     messages=messages,
     tools=tools,
-    response_format=WeatherResponse,
+    response_model=WeatherResponse,
 )
 
 # --------------------------------------------------------------
 # Step 5: Check model response
 # --------------------------------------------------------------
 
-final_response = completion_2.choices[0].message.parsed
+final_response = completion_2
 final_response.temperature
 final_response.response

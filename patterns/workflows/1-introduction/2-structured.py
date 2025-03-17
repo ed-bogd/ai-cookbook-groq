@@ -1,10 +1,15 @@
 import os
 
-from openai import OpenAI
+from groq import Groq
 from pydantic import BaseModel
+import instructor
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
 
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# Enable instructor patches for Groq client
+client = instructor.from_groq(client)
 
 # --------------------------------------------------------------
 # Step 1: Define the response format in a Pydantic model
@@ -21,8 +26,8 @@ class CalendarEvent(BaseModel):
 # Step 2: Call the model
 # --------------------------------------------------------------
 
-completion = client.beta.chat.completions.parse(
-    model="gpt-4o",
+completion = client.chat.completions.create(
+    model=MODEL,
     messages=[
         {"role": "system", "content": "Extract the event information."},
         {
@@ -30,14 +35,14 @@ completion = client.beta.chat.completions.parse(
             "content": "Alice and Bob are going to a science fair on Friday.",
         },
     ],
-    response_format=CalendarEvent,
+    response_model=CalendarEvent,
 )
 
 # --------------------------------------------------------------
 # Step 3: Parse the response
 # --------------------------------------------------------------
 
-event = completion.choices[0].message.parsed
+event = completion
 event.name
 event.date
 event.participants

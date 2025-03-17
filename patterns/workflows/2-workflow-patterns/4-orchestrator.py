@@ -1,8 +1,11 @@
 from typing import List, Dict
 from pydantic import BaseModel, Field
-from openai import OpenAI
+from groq import Groq
+import instructor
 import os
 import logging
+
+MODEL = "deepseek-r1-distill-llama-70b"
 
 # Set up logging configuration
 logging.basicConfig(
@@ -12,9 +15,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-model = "gpt-4o-mini"
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Enable instructor patches for Groq client
+client = instructor.from_groq(client)
 
 # --------------------------------------------------------------
 # Step 1: Define the data models
@@ -136,8 +139,8 @@ class BlogOrchestrator:
 
     def get_plan(self, topic: str, target_length: int, style: str) -> OrchestratorPlan:
         """Get orchestrator's blog structure plan"""
-        completion = client.beta.chat.completions.parse(
-            model=model,
+        completion = client.chat.completions.create(
+            model=MODEL,
             messages=[
                 {
                     "role": "system",
@@ -146,9 +149,10 @@ class BlogOrchestrator:
                     ),
                 }
             ],
-            response_format=OrchestratorPlan,
+            strict=True,
+            response_model=OrchestratorPlan,
         )
-        return completion.choices[0].message.parsed
+        return completion
 
     def write_section(self, topic: str, section: SubTask) -> SectionContent:
         """Worker: Write a specific blog section with context from previous sections.
@@ -168,8 +172,8 @@ class BlogOrchestrator:
             ]
         )
 
-        completion = client.beta.chat.completions.parse(
-            model=model,
+        completion = client.chat.completions.create(
+            model=MODEL,
             messages=[
                 {
                     "role": "system",
@@ -183,11 +187,12 @@ class BlogOrchestrator:
                         if previous_sections
                         else "This is the first section.",
                     ),
-                }
+                },
             ],
-            response_format=SectionContent,
+            strict=True,
+            response_model=SectionContent,
         )
-        return completion.choices[0].message.parsed
+        return completion
 
     def review_post(self, topic: str, plan: OrchestratorPlan) -> ReviewFeedback:
         """Reviewer: Analyze and improve overall cohesion"""
@@ -198,8 +203,8 @@ class BlogOrchestrator:
             ]
         )
 
-        completion = client.beta.chat.completions.parse(
-            model=model,
+        completion = client.chat.completions.create(
+            model=MODEL,
             messages=[
                 {
                     "role": "system",
@@ -210,9 +215,10 @@ class BlogOrchestrator:
                     ),
                 }
             ],
-            response_format=ReviewFeedback,
+            strict=True,
+            response_model=ReviewFeedback,
         )
-        return completion.choices[0].message.parsed
+        return completion
 
     def write_blog(
         self, topic: str, target_length: int = 1000, style: str = "informative"

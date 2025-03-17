@@ -1,10 +1,17 @@
 import json
 import os
 
-from openai import OpenAI
+from groq import Groq
 from pydantic import BaseModel, Field
+import instructor
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
+
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# Enable instructor patches for Groq client
+client = instructor.from_groq(client)
+
 
 """
 docs: https://platform.openai.com/docs/guides/function-calling
@@ -24,6 +31,11 @@ def search_kb(question: str):
         return json.load(f)
 
 
+# There could be more functions
+available_functions = {
+    "search_kb": search_kb,
+}
+
 # --------------------------------------------------------------
 # Step 1: Call model with search_kb tool defined
 # --------------------------------------------------------------
@@ -33,7 +45,7 @@ tools = [
         "type": "function",
         "function": {
             "name": "search_kb",
-            "description": "Get the answer to the user's question from the knowledge base.",
+            "description": "Answer users question about policies and procedures from the knowledge base.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -55,9 +67,12 @@ messages = [
 ]
 
 completion = client.chat.completions.create(
-    model="gpt-4o",
+    model=MODEL,
     messages=messages,
     tools=tools,
+    tool_choice="auto",  # LLM may decide which funcion to use
+    response_model=None,
+    strict=True,
 )
 
 # --------------------------------------------------------------
@@ -70,18 +85,12 @@ completion.model_dump()
 # Step 3: Execute search_kb function
 # --------------------------------------------------------------
 
-
-def call_function(name, args):
-    if name == "search_kb":
-        return search_kb(**args)
-
-
 for tool_call in completion.choices[0].message.tool_calls:
-    name = tool_call.function.name
+    function_name = tool_call.function.name
+    function_to_call = available_functions[function_name]
     args = json.loads(tool_call.function.arguments)
-    messages.append(completion.choices[0].message)
 
-    result = call_function(name, args)
+    result = function_to_call(**args)
     messages.append(
         {"role": "tool", "tool_call_id": tool_call.id, "content": json.dumps(result)}
     )
@@ -96,18 +105,19 @@ class KBResponse(BaseModel):
     source: int = Field(description="The record id of the answer.")
 
 
-completion_2 = client.beta.chat.completions.parse(
-    model="gpt-4o",
+completion_2 = client.chat.completions.create(
+    model=MODEL,
     messages=messages,
     tools=tools,
-    response_format=KBResponse,
+    tool_choice="auto",
+    response_model=KBResponse,
 )
 
 # --------------------------------------------------------------
 # Step 5: Check model response
 # --------------------------------------------------------------
 
-final_response = completion_2.choices[0].message.parsed
+final_response = completion_2
 final_response.answer
 final_response.source
 
@@ -117,13 +127,17 @@ final_response.source
 
 messages = [
     {"role": "system", "content": system_prompt},
-    {"role": "user", "content": "What is the weather in Tokyo?"},
+    {"role": "user", "content": "What is the weather in Riga today?"},
 ]
 
-completion_3 = client.beta.chat.completions.parse(
-    model="gpt-4o",
+completion_3 = client.chat.completions.create(
+    model=MODEL,
     messages=messages,
     tools=tools,
+    tool_choice="auto",
+    response_model=None,
 )
+
+completion_3.model_dump()
 
 completion_3.choices[0].message.content

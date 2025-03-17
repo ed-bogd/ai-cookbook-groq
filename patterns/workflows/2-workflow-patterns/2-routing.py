@@ -1,8 +1,11 @@
 from typing import Optional, Literal
 from pydantic import BaseModel, Field
-from openai import OpenAI
+from groq import Groq
+import instructor
 import os
 import logging
+
+MODEL = "llama-3.3-70b-versatile"
 
 # Set up logging configuration
 logging.basicConfig(
@@ -12,8 +15,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-model = "gpt-4o"
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Enable instructor patches for Groq client
+client = instructor.from_groq(client)
+
 
 # --------------------------------------------------------------
 # Step 1: Define the data models for routing and responses
@@ -74,8 +79,8 @@ def route_calendar_request(user_input: str) -> CalendarRequestType:
     """Router LLM call to determine the type of calendar request"""
     logger.info("Routing calendar request")
 
-    completion = client.beta.chat.completions.parse(
-        model=model,
+    completion = client.chat.completions.create(
+        model=MODEL,
         messages=[
             {
                 "role": "system",
@@ -83,9 +88,10 @@ def route_calendar_request(user_input: str) -> CalendarRequestType:
             },
             {"role": "user", "content": user_input},
         ],
-        response_format=CalendarRequestType,
+        response_model=CalendarRequestType,
     )
-    result = completion.choices[0].message.parsed
+    result = completion
+    
     logger.info(
         f"Request routed as: {result.request_type} with confidence: {result.confidence_score}"
     )
@@ -97,8 +103,8 @@ def handle_new_event(description: str) -> CalendarResponse:
     logger.info("Processing new event request")
 
     # Get event details
-    completion = client.beta.chat.completions.parse(
-        model=model,
+    completion = client.chat.completions.create(
+        model=MODEL,
         messages=[
             {
                 "role": "system",
@@ -106,10 +112,10 @@ def handle_new_event(description: str) -> CalendarResponse:
             },
             {"role": "user", "content": description},
         ],
-        response_format=NewEventDetails,
+        response_model=NewEventDetails,
     )
-    details = completion.choices[0].message.parsed
-
+    details = completion
+    
     logger.info(f"New event: {details.model_dump_json(indent=2)}")
 
     # Generate response
@@ -125,8 +131,8 @@ def handle_modify_event(description: str) -> CalendarResponse:
     logger.info("Processing event modification request")
 
     # Get modification details
-    completion = client.beta.chat.completions.parse(
-        model=model,
+    completion = client.chat.completions.create(
+        model=MODEL,
         messages=[
             {
                 "role": "system",
@@ -134,9 +140,9 @@ def handle_modify_event(description: str) -> CalendarResponse:
             },
             {"role": "user", "content": description},
         ],
-        response_format=ModifyEventDetails,
+        response_model=ModifyEventDetails,
     )
-    details = completion.choices[0].message.parsed
+    details = completion
 
     logger.info(f"Modified event: {details.model_dump_json(indent=2)}")
 

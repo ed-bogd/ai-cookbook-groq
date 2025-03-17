@@ -1,12 +1,13 @@
 import os
 
-from openai import OpenAI
+from groq import Groq
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
 
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 completion = client.chat.completions.create(
-    model="gpt-4o",
+    model=MODEL,
     messages=[
         {"role": "system", "content": "You're a helpful assistant."},
         {

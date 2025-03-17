@@ -1,9 +1,12 @@
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
-from openai import OpenAI
+from groq import Groq
 import os
 import logging
+import instructor
+
+MODEL = "llama-3.3-70b-versatile"
 
 # Set up logging configuration
 logging.basicConfig(
@@ -13,8 +16,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-model = "gpt-4o"
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Enable instructor patches for Groq client
+client = instructor.from_groq(client)
+
 
 # --------------------------------------------------------------
 # Step 1: Define the data models for each stage
@@ -57,7 +62,6 @@ class EventConfirmation(BaseModel):
 # Step 2: Define the functions
 # --------------------------------------------------------------
 
-
 def extract_event_info(user_input: str) -> EventExtraction:
     """First LLM call to determine if input is a calendar event"""
     logger.info("Starting event extraction analysis")
@@ -66,8 +70,8 @@ def extract_event_info(user_input: str) -> EventExtraction:
     today = datetime.now()
     date_context = f"Today is {today.strftime('%A, %B %d, %Y')}."
 
-    completion = client.beta.chat.completions.parse(
-        model=model,
+    completion = client.chat.completions.create(
+        model=MODEL,
         messages=[
             {
                 "role": "system",
@@ -75,14 +79,14 @@ def extract_event_info(user_input: str) -> EventExtraction:
             },
             {"role": "user", "content": user_input},
         ],
-        response_format=EventExtraction,
+        response_model=EventExtraction,
+        strict=True,
     )
-    result = completion.choices[0].message.parsed
+    result = completion
     logger.info(
         f"Extraction complete - Is calendar event: {result.is_calendar_event}, Confidence: {result.confidence_score:.2f}"
     )
     return result
-
 
 def parse_event_details(description: str) -> EventDetails:
     """Second LLM call to extract specific event details"""
@@ -91,8 +95,8 @@ def parse_event_details(description: str) -> EventDetails:
     today = datetime.now()
     date_context = f"Today is {today.strftime('%A, %B %d, %Y')}."
 
-    completion = client.beta.chat.completions.parse(
-        model=model,
+    completion = client.chat.completions.create(
+        model=MODEL,
         messages=[
             {
                 "role": "system",
@@ -100,9 +104,10 @@ def parse_event_details(description: str) -> EventDetails:
             },
             {"role": "user", "content": description},
         ],
-        response_format=EventDetails,
+        response_model=EventDetails,
+        strict=True,
     )
-    result = completion.choices[0].message.parsed
+    result = completion
     logger.info(
         f"Parsed event details - Name: {result.name}, Date: {result.date}, Duration: {result.duration_minutes}min"
     )
@@ -114,21 +119,21 @@ def generate_confirmation(event_details: EventDetails) -> EventConfirmation:
     """Third LLM call to generate a confirmation message"""
     logger.info("Generating confirmation message")
 
-    completion = client.beta.chat.completions.parse(
-        model=model,
+    completion = client.chat.completions.create(
+        model=MODEL,
         messages=[
             {
                 "role": "system",
-                "content": "Generate a natural confirmation message for the event. Sign of with your name; Susie",
+                "content": "Generate a natural confirmation message for the event, format it as proper email, use more line breakers. Sign of with your name; Susie",
             },
             {"role": "user", "content": str(event_details.model_dump())},
         ],
-        response_format=EventConfirmation,
+        response_model=EventConfirmation,
+        strict=True,
     )
-    result = completion.choices[0].message.parsed
+    result = completion
     logger.info("Confirmation message generated successfully")
     return result
-
 
 # --------------------------------------------------------------
 # Step 3: Chain the functions together
